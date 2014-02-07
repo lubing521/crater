@@ -57,7 +57,8 @@ void consumer_groups_destroy(ConsumerGroups* g);
 void consumers_destroy(Consumers* c);
 void producer_destroy(Producer* p);
 
-Context* context_spawn(int client);
+Context* context_alloc(int client);
+int context_spawn(Context* c);
 int context_destroy(Context* c);
 
 #endif /* ACTORS_H */

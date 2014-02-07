@@ -34,5 +34,6 @@ int crater_create_context(Crater* crater, int client);
 bool crater_ready(Crater* crater);
 void crater_start(Crater* crater);
 bool crater_add_context(Crater* c, Context* ctx);
+void crater_remove_context(Crater* c, Context* ctx);
 
 #endif /* CRATER_H */

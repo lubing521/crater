@@ -75,3 +75,7 @@ void crater_start(Crater* c) {
 bool crater_add_context(Crater* c, Context* ctx) {
     return false;
 }
+
+void crater_remove_context(Crater* c, Context* ctx) {
+
+}

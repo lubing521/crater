@@ -155,7 +155,7 @@ void* context_run(void* context) {
     return c;
 }
 
-static int context_do_thread(Context* c) {
+int context_do_thread(Context* c) {
     if (pthread_attr_setdetachstate(&c->thread_attr,
                                     PTHREAD_CREATE_JOINABLE) != 0) {
         perror("Failed to make thread joinable: ");
@@ -168,7 +168,7 @@ static int context_do_thread(Context* c) {
     return 0;
 }
 
-static Context* context_alloc(int client) {
+Context* context_alloc(int client) {
     Context* c = (Context*)calloc(1, sizeof(*c));
     c->client = client;
     return c;
@@ -191,13 +191,14 @@ int context_destroy(Context* c) {
 }
 
 // Spawns a new thread with the context handler
-Context* context_spawn(int client) {
-    Context* ctx = context_alloc(client);
+int context_spawn(Context* ctx) {
     if (context_do_thread(ctx) != 0) {
-        context_destroy(ctx);
-        return NULL;
+        if (context_destroy(ctx) != 0) {
+            printf("Failed to destroy context for client %d\n", ctx->client);
+        }
+        return -1;
     }
-    return ctx;
+    return 0;
 }
 
 static void consumer_destroy(Consumer* c) {

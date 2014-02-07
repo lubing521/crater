@@ -47,7 +47,6 @@ int server_run(Addr addr, Crater* crater) {
     if (server < 0) {
         return -1;
     }
-    Context* ctx = NULL;
     bool ready = false;
     for (;;) {
         int client = server_accept(server);
@@ -58,16 +57,15 @@ int server_run(Addr addr, Crater* crater) {
             }
         } else {
             // Start a new context for this client
-            ctx = context_spawn(client);
-            if (ctx == NULL) {
+            Context* ctx = context_alloc(client);
+            ready = crater_add_context(crater, ctx);
+            if (context_spawn(ctx) != 0) {
+                crater_remove_context(crater, ctx);
+                ready = false;
                 if (close(client) < 0) {
                     perror("Failed to close client: ");
                 }
             }
-        }
-        if (!ready) {
-            ready = crater_add_context(crater, ctx);
-            ctx = NULL;
             if (ready) {
                 crater_start(crater);
             }
