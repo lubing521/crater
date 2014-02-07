@@ -8,7 +8,7 @@
 
 static int server_listen(Addr addr) {
     // Open a new socket
-    int server = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    int server = socket(AF_INET, SOCK_STREAM, 0);
     if (server < 0) {
         perror(NULL);
         return -1;
@@ -47,6 +47,7 @@ int server_run(Addr addr, Crater* crater) {
     if (server < 0) {
         return -1;
     }
+    Context* ctx = NULL;
     bool ready = false;
     for (;;) {
         int client = server_accept(server);
@@ -57,16 +58,16 @@ int server_run(Addr addr, Crater* crater) {
             }
         } else {
             // Start a new context for this client
-            int ret = crater_create_context(crater, client);
-            if (ret < 0) {
+            ctx = context_spawn(client);
+            if (ctx == NULL) {
                 if (close(client) < 0) {
                     perror("Failed to close client: ");
                 }
             }
         }
         if (!ready) {
-            // Check that all configured actors are present
-            ready = crater_ready(crater);
+            ready = crater_add_context(crater, ctx);
+            ctx = NULL;
             if (ready) {
                 crater_start(crater);
             }

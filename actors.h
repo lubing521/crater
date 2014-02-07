@@ -8,6 +8,12 @@
 #include <arpa/inet.h>
 
 typedef struct {
+    char* buf;
+    size_t len;
+    size_t max;
+} Buffer;
+
+typedef struct {
     // State
     pthread_t thread;
     pthread_attr_t thread_attr;
@@ -44,12 +50,14 @@ typedef struct {
     ConsumerGroup** i;
 } ConsumerGroups;
 
+void buffer_alloc(Buffer* b, size_t n);
+void buffer_free(Buffer* b);
+
 void consumer_groups_destroy(ConsumerGroups* g);
 void consumers_destroy(Consumers* c);
 void producer_destroy(Producer* p);
 
-Context* context_alloc(int client);
-int context_spawn(Context* c);
+Context* context_spawn(int client);
 int context_destroy(Context* c);
 
 #endif /* ACTORS_H */

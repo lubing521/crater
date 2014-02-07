@@ -9,36 +9,81 @@
 #include <netinet/in.h>
 
 #define READBUFSIZE 1024
+#define WRITBUFSIZE 1024
 
-typedef struct {
-    char* buf;
-    size_t len;
-    size_t max;
-} ContextBuffer;
+// Initializes a Buffer
+void buffer_alloc(Buffer* b, size_t n) {
+    b->len = 0;
+    b->max = n;
+    b->buf = malloc(n * sizeof(*(b->buf)));
+}
 
-static void read_client(int client, ContextBuffer* rbuf, ContextBuffer* wbuf) {
-    rbuf->len = 0;
-    wbuf->len = 0;
-    ssize_t n = 0;
+// Releases the Buffer's resources
+void buffer_free(Buffer* b) {
+    b->len = 0;
+    b->max = 0;
+    free(b->buf);
+}
+
+// Reset the buffer index
+void buffer_reset(Buffer* b) {
+    b->len = 0;
+}
+
+// Resizes the Buffer to max
+int buffer_resize(Buffer* b, size_t max) {
+    if (max == b->max) {
+        return 0;
+    }
+    if (max < b->len) {
+        b->len = max;
+    }
+    char* buf = realloc(b->buf, max);
+    if (buf == NULL) {
+        return -1;
+    } else {
+        b->buf = buf;
+    }
+    return 0;
+}
+
+// Doubles the buffer length
+int buffer_grow(Buffer* b) {
+    return buffer_resize(b, b->max * 2);
+}
+
+// Reads from and writes to a client socket
+static int client_rw(int client, Buffer* rbuf, Buffer* wbuf) {
+    buffer_reset(rbuf);
+    buffer_reset(wbuf);
     fd_set readset;
     FD_ZERO(&readset);
     FD_SET(client, &readset);
     fd_set writeset;
     FD_ZERO(&writeset);
     FD_SET(client, &readset);
-    for (;;) {
-        select(client + 1, &readset, &writeset, NULL, NULL);
-        if (FD_ISSET(client, &readset)) {
-            // TODO -- read from descriptor
-        }
-        if (FD_ISSET(client, &writeset)) {
-            // TODO -- write to descriptor.  Where do we get our write
-            // data from?
+    select(client + 1, &readset, &writeset, NULL, NULL);
+    if (FD_ISSET(client, &readset)) {
+        ssize_t n = read(client, rbuf->buf, rbuf->max);
+        if (n < 0) {
+            perror("Failed to read from client: ");
+        } else if (n == 0) {
+            printf("Client %d closed their connection\n", client);
+            return -1;
+        } else {
+            rbuf->len = (size_t)n;
         }
     }
-    if (n < 0) {
-        perror("Read failed: ");
+    if (FD_ISSET(client, &writeset)) {
+        ssize_t n = write(client, wbuf->buf, wbuf->len);
+        if (n < 0) {
+            perror("Failed to write to client: ");
+            return -1;
+        } else {
+            wbuf->len = n;
+        }
     }
+    return 0;
 }
 
 /*
@@ -80,25 +125,37 @@ get-data
 
 give-data
     (byte) Input or Output
-    (uint64) Length
-    (byte[N]) data
+    [(uint64) Length
+    (byte[N]) data]
 
 */
 
 // Thread main function.  Returns NULL on failure, else Context*
 void* context_run(void* context) {
     Context* c = (Context*)context;
-
+    Buffer rbuf;
+    buffer_alloc(&rbuf, READBUFSIZE);
+    Buffer wbuf;
+    buffer_alloc(&wbuf, WRITBUFSIZE);
+    while (client_rw(c->client, &rbuf, &wbuf) == 0) {
+        // TODO -- NEXT IMMEDIATELY -- MESSAGE PARSING
+        //         GROWING BUFFER IMPLEMENTATION
+        // Check the rbuf length
+        // Parse it into a message
+        //   If the message is incomplete, keep growing the buffer until
+        //   we can parse it completely.  Reject anything with too long length
+        // If its requesting data,
+        //   Set a read marker
+        //   Fill the wbuf with as much data as possible. But don't need to
+        //   grow too large.
+        //   Keep sending until marker terminates
+        // If its sending data,
+        //   Copy the data out of the buffer and set it onto the ring buffer
+    }
     return c;
 }
 
-// select()s data from the context's client
-void context_select(Context* c) {
-
-}
-
-// Spawns a new thread with the context handler
-int context_spawn(Context* c) {
+static int context_do_thread(Context* c) {
     if (pthread_attr_setdetachstate(&c->thread_attr,
                                     PTHREAD_CREATE_JOINABLE) != 0) {
         perror("Failed to make thread joinable: ");
@@ -109,6 +166,12 @@ int context_spawn(Context* c) {
         return -1;
     }
     return 0;
+}
+
+static Context* context_alloc(int client) {
+    Context* c = (Context*)calloc(1, sizeof(*c));
+    c->client = client;
+    return c;
 }
 
 int context_destroy(Context* c) {
@@ -127,10 +190,14 @@ int context_destroy(Context* c) {
     return 0;
 }
 
-Context* context_alloc(int client) {
-    Context* c = (Context*)calloc(1, sizeof(*c));
-    c->client = client;
-    return c;
+// Spawns a new thread with the context handler
+Context* context_spawn(int client) {
+    Context* ctx = context_alloc(client);
+    if (context_do_thread(ctx) != 0) {
+        context_destroy(ctx);
+        return NULL;
+    }
+    return ctx;
 }
 
 static void consumer_destroy(Consumer* c) {
