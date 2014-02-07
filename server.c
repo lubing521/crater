@@ -41,38 +41,36 @@ static int server_accept(int server) {
     return accept(server, (struct sockaddr*)&cin, NULL);
 }
 
-// Listens on Addr.  Return -1 on error.
+// Listens on Addr until all expected clients have connected.  Returns -1
+// if it fails to achieve this.
 int server_run(Addr addr, Crater* crater) {
     int server = server_listen(addr);
     if (server < 0) {
         return -1;
     }
-    bool ready = false;
     for (;;) {
         int client = server_accept(server);
         if (client < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 perror("Server accept failed: ");
-                break;
             }
-        } else {
-            // Start a new context for this client
-            Context* ctx = context_alloc(client);
-            ready = crater_add_context(crater, ctx);
-            if (context_spawn(ctx) != 0) {
-                crater_remove_context(crater, ctx);
-                ready = false;
-                if (close(client) < 0) {
-                    perror("Failed to close client: ");
-                }
-            }
-            if (ready) {
-                crater_start(crater);
+            continue;
+        }
+        // Start a new context for this client
+        Context* ctx = context_alloc(client);
+        bool ready = crater_add_context(crater, ctx);
+        if (context_spawn(ctx) != 0) {
+            crater_remove_context(crater, ctx);
+            ready = false;
+            if (close(client) < 0) {
+                perror("Failed to close client: ");
             }
         }
+        if (ready) {
+            return 0;
+        }
     }
-
-    return 0;
+    return -1;
 }
 
 // Converts hostname of the form "xxx.xx.xx.xxx:yyyy" to an Addr

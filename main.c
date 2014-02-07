@@ -24,8 +24,10 @@ int main(int argc, char** argv) {
     addr_from_hostname(hostname, &addr);
     printf("Listening on %s\n", hostname);
     int ret = server_run(addr, c);
-    if (ret < 0) {
-        printf("Listen failed\n");
+    if (ret == 0) {
+        crater_start(c);
+    } else {
+        printf("Server run failed\n");
     }
     crater_destroy(c);
     return 0;
