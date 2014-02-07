@@ -40,6 +40,7 @@ void crater_set_input(Crater* c, uint64_t pos, char* data, size_t len,
 
 void crater_set_output(Crater* c, uint64_t pos, char* data, size_t len,
                        size_t max) {
+    assert(c->buffer[pos % c->len].output.buf == NULL);
     c->buffer[pos % c->len].output = (Buffer) {
         .buf = data, .len = len, .max = max
     };
