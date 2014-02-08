@@ -18,6 +18,7 @@ int buffer_resize(Buffer* b, size_t max);
 int buffer_grow(Buffer* b);
 void buffer_reset(Buffer* b);
 int buffer_write(Buffer* b, char* data, size_t len);
+void buffer_strip(Buffer* b, size_t up_to);
 
 typedef enum {
     MSG_GET_DATA,

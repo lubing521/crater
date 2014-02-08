@@ -75,6 +75,9 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
         if (r == 0) {
             return buffer_grow(rbuf);
         } else {
+            // Move remaining data to the beginning of the buffer
+            // TODO -- use circular buffer
+            buffer_strip(rbuf, r + n);
             int ret = context_process_get_data_msg(ctx, m, wbuf);
             get_data_msg_destroy(&m);
             return ret;

@@ -24,7 +24,10 @@ int main(int argc, char** argv) {
     const char* hostname = argv[1];
     Addr addr;
     if (argc > 1) {
-        addr_from_hostname(argv[1], &addr);
+        if (addr_from_hostname(hostname, &addr) < 0) {
+            printf("Invalid host: %s\n", hostname);
+            return 1;
+        }
         printf("Listening on %s\n", hostname);
     } else {
         memset(&addr, 0, sizeof(addr));

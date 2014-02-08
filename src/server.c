@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "messages.h"
 
 static int server_listen(Addr addr) {
     // Open a new socket
@@ -55,6 +56,7 @@ static void terminate_client(int client) {
 // Blocks while waiting for ConfigureMessage from a client socket.
 // Returns -1 on error, 0 on success.
 static int read_client_config(int client, Buffer* buf, ConfigureMessage* m) {
+    size_t rd = 0;
     for (;;) {
         // The configure message should fit in the buffer we were given
         // If not, fail
@@ -62,11 +64,16 @@ static int read_client_config(int client, Buffer* buf, ConfigureMessage* m) {
             return -1;
         }
         // Read from the client socket
-        ssize_t r = read(client, buf->buf, buf->max);
+        ssize_t r = recv(client, &buf->buf[rd], buf->max - rd, 0);
         if (r < 0) {
             perror("Client read failed: ");
             return -1;
+        } else if (r == 0) {
+            printf("Client terminated\n");
+            return -1;
         }
+        rd += r;
+        printf("Read %ld bytes\n", r);
         // Update the buffer
         buf->len += (size_t)r;
         // Parse the message header
@@ -74,14 +81,23 @@ static int read_client_config(int client, Buffer* buf, ConfigureMessage* m) {
         MessageType rmtype = MSG_UNKNOWN;
         size_t n = parse_message_header(buf->buf, buf->len, &rmlen, &rmtype);
         if (rmlen > MSGMAXLEN) {
+            printf("Invalid msg length %llu\n", (long long unsigned)rmlen);
             return -1;
+        }
+        if (rmtype != MSG_CONFIGURE) {
+            printf("Invalid msg type %d\n", rmtype);
+            return -1;
+        }
+        if (rmlen < buf->len - n) {
+            printf("Not enough data\n");
+            continue;
         }
         // If we were unable to parse the header, go read more from the client
         if (n == 0) {
             continue;
         }
         // Parse the message body
-        if (parse_message_configure(buf->buf, buf->len - n, m) == 0) {
+        if (parse_message_configure(&buf->buf[n], buf->len - n, m) == 0) {
             printf("Client configuration failed\n");
             return -1;
         }
@@ -108,6 +124,7 @@ int server_run(Addr addr, Crater* crater) {
             }
             continue;
         }
+        printf("Got new connection\n");
 
         // Block on client read until we get a configuration packet from them.
         // This may interfere with other client connection attempts, if this
@@ -120,9 +137,11 @@ int server_run(Addr addr, Crater* crater) {
         int ret = read_client_config(client, &buf, &m);
         buffer_reset(&buf);
         if (ret < 0) {
+            printf("Failed to read client config\n");
             terminate_client(client);
             continue;
         }
+        printf("Client actor type: %d\n", m.actor_type);
 
         // Start a new context for this client
         Context* ctx = context_alloc(client);
@@ -135,8 +154,11 @@ int server_run(Addr addr, Crater* crater) {
             crater_undo_add_context(crater, m);
             terminate_client(client);
             ready = 0;
+        } else {
+            printf("Spawned client thread\n");
         }
         if (ready > 0) {
+            printf("Ready\n");
             break;
         }
     }

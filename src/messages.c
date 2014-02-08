@@ -1,6 +1,7 @@
 #include "messages.h"
 
 #include <string.h>
+#include <stdio.h>
 
 // Initializes a Buffer
 void buffer_alloc(Buffer* b, size_t n) {
@@ -54,6 +55,21 @@ int buffer_write(Buffer* b, char* data, size_t len) {
     b->len += len;
     return 0;
 }
+
+// Removes the first up_to bytes and moves the remainder to the beginning
+// of the buffer
+// TODO -- use a circular buffer for reads
+void buffer_strip(Buffer* b, size_t up_to) {
+    if (up_to >= b->len) {
+        b->len = 0;
+        return;
+    }
+    size_t new_len = b->len - up_to;
+    memmove(b->buf, &b->buf[up_to], new_len);
+    b->len = new_len;
+    return;
+}
+
 
 // Parses a uint64_t.  If buf is not long enough, will return 0, otherwise
 // number of bytes read.
@@ -112,10 +128,7 @@ size_t parse_message_header(const char* buf, size_t len, uint64_t* mlen,
 
     // Read msg id
     uint8_t msg_id = 0;
-    if (len - r < sizeof(msg_id)) {
-        return 0;
-    }
-    n = parse_uint8(&buf[n], len - n, &msg_id);
+    n = parse_uint8(&buf[r], len - r, &msg_id);
     if (n == 0) {
         return 0;
     }
@@ -123,10 +136,16 @@ size_t parse_message_header(const char* buf, size_t len, uint64_t* mlen,
     switch (msg_id) {
     case MSG_GIVE_DATA:
         *mtype = MSG_GIVE_DATA;
+        break;
     case MSG_GET_DATA:
         *mtype = MSG_GET_DATA;
+        break;
+    case MSG_CONFIGURE:
+        *mtype = MSG_CONFIGURE;
+        break;
     default:
         *mtype = MSG_UNKNOWN;
+        break;
     }
     return r;
 }
@@ -204,14 +223,14 @@ size_t parse_message_give_data(const char* buf, size_t len, GiveDataMsg* m) {
 }
 
 size_t parse_message_configure(const char* buf, size_t len, ConfigureMessage* m) {
-    size_t r = 0;
+    printf("Parsing configure message of len %llu\n", (long long unsigned)len);
     uint8_t actor_type = 0;
     size_t n = parse_uint8(buf, len, &actor_type);
     if (n == 0) {
         return 0;
     }
     m->actor_type = actor_type;
-    return r;
+    return n;
 }
 
 void get_data_msg_destroy(GetDataMsg* m) {
