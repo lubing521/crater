@@ -13,7 +13,7 @@ struct Crater;
 typedef struct {
     volatile uint64_t slot;
     uint64_t stride;
-    bool can_write;
+    ActorType type;
 } Actor;
 
 typedef struct {

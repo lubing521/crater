@@ -43,17 +43,74 @@ int client_connect(Client* c, Addr addr) {
     return 0;
 }
 
-static char* serialize_configure_msg(ConfigureMessage m, size_t* len) {
-    *len = sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint8_t);
-    char* buf = malloc(*len);
+static size_t write_uint64(uint64_t val, char* buf, size_t len) {
+    if (len < sizeof(uint64_t)) {
+        return 0;
+    }
+    *(uint64_t*)buf = val;
+    return sizeof(uint64_t);
+}
+
+static size_t write_uint8(uint8_t val, char* buf, size_t len) {
+    if (len < sizeof(uint8_t)) {
+        return 0;
+    }
+    *(uint8_t*)buf = val;
+    return sizeof(uint8_t);
+}
+
+static size_t write_bytes(char* data, size_t ndata, char* buf, size_t len) {
+    if (len < ndata) {
+        return 0;
+    }
+    memcpy(buf, data, ndata);
+    return ndata;
+}
+
+static char* serialize_configure_msg(ConfigureMessage m, size_t* buflen) {
+    size_t mlen = sizeof(uint8_t);
+    size_t blen = mlen + sizeof(uint64_t) + sizeof(uint8_t);
+    char* buf = malloc(blen);
     size_t r = 0;
-    *(uint64_t*)buf = (uint64_t)(sizeof(uint8_t));
-    r += sizeof(uint64_t);
-    *(uint8_t*)&buf[r] = (uint8_t)MSG_CONFIGURE;
-    r += sizeof(uint8_t);
-    *(uint8_t*)&buf[r] = (uint8_t)m.actor_type;
-    r += sizeof(uint8_t);
+    r += write_uint64(mlen, buf, blen);
+    r += write_uint8(MSG_CONFIGURE, &buf[r], blen - r);
+    r += write_uint8(m.actor_type, &buf[r], blen - r);
+    *buflen = r;
     return buf;
+}
+
+static char* serialize_give_data_msg(GiveDataMsg m, size_t* buflen) {
+    size_t mlen = sizeof(uint8_t) + sizeof(m.n);
+    for (uint64_t i = 0; i < m.n; i++) {
+        mlen += sizeof(m.data[i].len) + m.data[i].len;
+    }
+    size_t blen = mlen + sizeof(uint64_t) + sizeof(uint8_t);
+    char* buf = malloc(blen);
+    size_t r = 0;
+    r += write_uint64(mlen, buf, blen);
+    r += write_uint8(MSG_GIVE_DATA, &buf[r], blen - r);
+    r += write_uint8(m.io, &buf[r], blen - r);
+    r += write_uint64(m.n, &buf[r], blen - r);
+    for (uint64_t i = 0; i < m.n; i++) {
+        r += write_uint64(m.data[i].len, &buf[r], blen - r);
+        r += write_bytes(m.data[i].buf, m.data[i].len, &buf[r], blen - r);
+    }
+    *buflen = r;
+    return buf;
+}
+
+int client_sendall(Client* c, char* buf, size_t len) {
+    size_t wrote = 0;
+    while (wrote < len) {
+        ssize_t n = send(c->client, &buf[wrote], len, 0);
+        if (n < 0) {
+            perror("send failed: ");
+            free(buf);
+            return -1;
+        }
+        wrote += (size_t)n;
+    }
+    return 0;
 }
 
 int client_send_config(Client* c) {
@@ -64,23 +121,39 @@ int client_send_config(Client* c) {
     if (buf == NULL) {
         return -1;
     }
-    size_t wrote = 0;
     printf("Sending %lu bytes as configuration\n", len);
-    while (wrote < len) {
-        ssize_t n = send(c->client, &buf[wrote], len, 0);
-        if (n < 0) {
-            perror("send failed: ");
-            free(buf);
-            return -1;
-        }
-        wrote += (size_t)n;
-    }
+    int sent = client_sendall(c, buf, len);
     free(buf);
-    return 0;
+    return sent;
+}
+
+static GiveDataMsg create_give_data_msg(const char text[]) {
+    size_t tlen = strlen(text);
+    GiveDataMsg m;
+    m.io = SLOT_INPUT;
+    m.n = 10;
+    m.data = malloc(m.n * sizeof(SlotData));
+    for (uint64_t i = 0; i < m.n; i++) {
+        m.data[i].len = tlen;
+        char* c = malloc(tlen);
+        strncpy(c, text, tlen);
+        m.data[i].buf = c;
+    }
+    return m;
 }
 
 int client_give_data(Client* c) {
-    return -1;
+    const char text[] = "hello world";
+    GiveDataMsg m = create_give_data_msg(text);
+    size_t blen = 0;
+    char* buf = serialize_give_data_msg(m, &blen);
+    give_data_msg_destroy(&m);
+    if (buf == NULL) {
+        return -1;
+    }
+    int sent = client_sendall(c, buf, blen);
+    free(buf);
+    return sent;
 }
 
 int client_get_data(Client* c) {
@@ -88,7 +161,12 @@ int client_get_data(Client* c) {
 }
 
 int client_produce(Client* c) {
-    return -1;
+    for (;;) {
+        printf("Sending some data to server\n");
+        client_give_data(c);
+        sleep(3);
+    }
+    return 0;
 }
 
 int client_consume(Client* c) {
@@ -145,22 +223,26 @@ int main(int argc, char** argv) {
         printf("Sent configuration\n");
     }
 
-    sleep(100);
+    sleep(2);
 
+    int ret = 0;
     switch (c.type) {
     case ACTOR_PRODUCER:
-        client_produce(&c);
+        ret = client_produce(&c);
         break;
     case ACTOR_TRANSFORMER:
-        client_transform(&c);
+        ret = client_transform(&c);
         break;
     case ACTOR_CONSUMER:
-        client_consume(&c);
+        ret = client_consume(&c);
         break;
     default:
         assert(false);
         return 1;
     }
 
+    if (ret != 0) {
+        return 1;
+    }
     return 0;
 }

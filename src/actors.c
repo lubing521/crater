@@ -63,9 +63,11 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
     MessageType rmtype = MSG_UNKNOWN;
     size_t n = parse_message_header(rbuf->buf, rbuf->len, &rmlen, &rmtype);
     if (rmlen > MSGMAXLEN) {
+        printf("Received message is too long\n");
         return -1;
     }
     if (n == 0) {
+        printf("Not enough in the header\n");
         return 0;
     }
     switch (rmtype) {
@@ -80,6 +82,9 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
             buffer_strip(rbuf, r + n);
             int ret = context_process_get_data_msg(ctx, m, wbuf);
             get_data_msg_destroy(&m);
+            if (ret < 0) {
+                printf("Failed to process get data\n");
+            }
             return ret;
         }
     }; break;
@@ -90,6 +95,9 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
             return buffer_grow(rbuf);
         } else {
             int ret = context_process_give_data_msg(ctx, m);
+            if (ret < 0) {
+                printf("Failed to process give-data\n");
+            }
             give_data_msg_destroy(&m);
             return ret;
         }
@@ -235,7 +243,7 @@ Actor* actors_fetch(Actors* a) {
     Actor* actor = &a->i[a->len++];
     actor->slot = 0;
     actor->stride = 1;
-    actor->can_write = false;
+    actor->type = ACTOR_UNKNOWN;
     return actor;
 }
 
@@ -317,7 +325,12 @@ int context_process_get_data_msg(Context* ctx, GetDataMsg m, Buffer* wbuf) {
 }
 
 int context_process_give_data_msg(Context* ctx, GiveDataMsg m) {
-    if (!ctx->actor->can_write) {
+    switch (ctx->actor->type) {
+    case ACTOR_TRANSFORMER:
+    case ACTOR_PRODUCER:
+        break;
+    default:
+        printf("Actor can't write\n");
         return -1;
     }
     if (m.io == SLOT_UNKNOWN) {

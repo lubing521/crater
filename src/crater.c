@@ -121,6 +121,8 @@ int crater_add_context(Crater* c, Context* ctx, ConfigureMessage m) {
         assert(false);
         return -1;
     }
+    ctx->actor->type = m.actor_type;
+    ctx->crater = c;
     return crater_config_ready(c->config);
 }
 

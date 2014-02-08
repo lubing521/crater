@@ -240,6 +240,9 @@ void get_data_msg_destroy(GetDataMsg* m) {
 }
 
 void give_data_msg_destroy(GiveDataMsg* m) {
+    for (uint64_t i = 0; i < m->n; i++) {
+        free(m->data[i].buf);
+    }
     free(m->data);
     m->data = NULL;
     m->n = 0;
