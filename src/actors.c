@@ -28,6 +28,7 @@ static int client_rw(int client, Buffer* rbuf, Buffer* wbuf) {
     FD_SET(client, &readset);
     select(client + 1, &readset, &writeset, NULL, NULL);
     if (FD_ISSET(client, &readset)) {
+        printf("Have client read data\n");
         size_t size = rbuf->max - rbuf->len;
         if (size == 0) {
             if (buffer_grow(rbuf) < 0) {
@@ -45,6 +46,7 @@ static int client_rw(int client, Buffer* rbuf, Buffer* wbuf) {
         }
     }
     if (FD_ISSET(client, &writeset)) {
+        printf("Have client write data\n");
         ssize_t n = write(client, wbuf->buf, wbuf->len);
         if (n < 0) {
             perror("Failed to write to client: ");
@@ -59,6 +61,7 @@ static int client_rw(int client, Buffer* rbuf, Buffer* wbuf) {
 // Reads an incoming message and handles it if recognized.
 // Returns -1 on error.
 static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
+    printf("Handling incoming data\n");
     uint64_t rmlen = 0;
     MessageType rmtype = MSG_UNKNOWN;
     size_t n = parse_message_header(rbuf->buf, rbuf->len, &rmlen, &rmtype);
@@ -70,8 +73,10 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
         printf("Not enough in the header\n");
         return 0;
     }
+
     switch (rmtype) {
     case MSG_GET_DATA: {
+        printf("Received MSG_GET_DATA\n");
         GetDataMsg m;
         size_t r = parse_message_get_data(&rbuf->buf[n], rbuf->len - n, &m);
         if (r == 0) {
@@ -88,10 +93,13 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
             return ret;
         }
     }; break;
+
     case MSG_GIVE_DATA: {
+        printf("Received MSG_GIVE_DATA\n");
         GiveDataMsg m;
         size_t r = parse_message_give_data(&rbuf->buf[n], rbuf->len - n, &m);
         if (r == 0) {
+            printf("Couldn't parse message, growing buffer\n");
             return buffer_grow(rbuf);
         } else {
             int ret = context_process_give_data_msg(ctx, m);
@@ -102,11 +110,13 @@ static int context_handle_incoming(Context* ctx, Buffer* rbuf, Buffer* wbuf) {
             return ret;
         }
     }; break;
+
     case MSG_UNKNOWN:
     default:
         printf("Unknown message received\n");
         break;
     }
+
     buffer_reset(rbuf);
     return 0;
 }
@@ -124,6 +134,7 @@ static int handle_outgoing(int client, Buffer* buf) {
 
 // Thread main function.  Returns NULL on failure, else Context*
 void* context_run(void* context) {
+    printf("context_run for new client\n");
     Context* c = (Context*)context;
     // TODO -- switch to circular buffer for reading
     Buffer rbuf;
@@ -325,6 +336,7 @@ int context_process_get_data_msg(Context* ctx, GetDataMsg m, Buffer* wbuf) {
 }
 
 int context_process_give_data_msg(Context* ctx, GiveDataMsg m) {
+    printf("Processing MSG_GIVE_DATA\n");
     switch (ctx->actor->type) {
     case ACTOR_TRANSFORMER:
     case ACTOR_PRODUCER:
@@ -334,31 +346,45 @@ int context_process_give_data_msg(Context* ctx, GiveDataMsg m) {
         return -1;
     }
     if (m.io == SLOT_UNKNOWN) {
+        printf("SLOT_UNKNOWN rejected\n");
         return -1;
     }
     // TODO -- this is cross-thread read. Review.  Do we need a memory barrier,
     // or is volatile sufficient?
     uint64_t max_slot = 0;
+    uint64_t slot = ctx->actor->slot;
     switch (m.io) {
     case SLOT_INPUT:
         max_slot = ctx->crater->vacuum.slot;
+        // The followers (vacuum, consumer) move up to the active slot of
+        // the producer. If a follower's slot is equal to the producer's,
+        // the producer has the full ring to access before it catches up.
+        if (max_slot == slot) {
+            max_slot += ctx->crater->len;
+        }
         break;
     case SLOT_OUTPUT:
         max_slot = ctx->crater->producer.slot;
         break;
     default:
+        printf("Invalid slot type\n");
         assert(false);
         return -1;
     }
-    uint64_t slot = ctx->actor->slot;
+    printf("m.n, slot, max_slot: %lu, %lu, %lu\n", m.n, slot, max_slot);
     for (uint64_t i = 0; i < m.n && slot < max_slot; i++, slot++) {
         SlotData data = m.data[i];
         switch (m.io) {
         case SLOT_INPUT:
             crater_set_copy_input(ctx->crater, slot, data.buf, data.len);
+            printf("Wrote %lu bytes to crater input slot %lu\n", data.len, slot);
+            break;
         case SLOT_OUTPUT:
             crater_set_copy_output(ctx->crater, slot, data.buf, data.len);
+            printf("Wrote %lu bytes to crater output slot %lu\n", data.len, slot);
+            break;
         default:
+            printf("Invalid slot type\n");
             assert(false);
             return -1;
         }

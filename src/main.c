@@ -14,7 +14,7 @@ Producer/Consumer
 */
 
 int main(int argc, char** argv) {
-    if (argc > 1 && strlen(argv[1]) > 2 && strncmp(argv[1], "-h", 2) == 0) {
+    if (argc > 1 && strlen(argv[1]) >= 2 && strncmp(argv[1], "-h", 2) == 0) {
         printf("Usage: ./crater xxx.xx.xx.xxx:yyyy\n");
         return 0;
     }
